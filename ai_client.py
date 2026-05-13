@@ -100,6 +100,40 @@ Respond with ONLY the response text, no additional formatting or explanations.""
         return None
 
 
+async def classify_channel(title: str, about: str = "") -> Tuple[bool, float, str]:
+    prompt = f"""Analyze this Telegram channel and determine:
+1. Is it likely a freelance/job vacancy channel? (true/false)
+2. Confidence score (0.0 to 1.0)
+3. Category (one word: "freelance", "tech_jobs", "general_jobs", "other")
+
+Channel title: {title}
+Channel description: {about[:500]}
+
+Respond ONLY with a valid JSON object:
+{{"is_job_channel": bool, "score": float, "category": str}}"""
+
+    try:
+        client = get_client()
+        resp = await client.chat.completions.create(
+            model=config.groq_model,
+            messages=[
+                {"role": "system", "content": "You classify Telegram channels by topic."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+        data = json.loads(resp.choices[0].message.content)
+        return (
+            data.get("is_job_channel", False),
+            float(data.get("score", 0.0)),
+            data.get("category", "other"),
+        )
+    except Exception as e:
+        print(f"[AI] classify_channel error: {e}")
+        return False, 0.0, "other"
+
+
 async def generate_followup(vacancy_text: str, previous_response: Optional[str] = None) -> Optional[str]:
     prompt = f"""Generate a polite follow-up message for a job application.
 

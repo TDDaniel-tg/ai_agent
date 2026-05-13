@@ -6,8 +6,8 @@ from telethon import TelegramClient, events
 from telethon.tl.types import Message
 
 from config import config
-from db import get_channels, get_accounts, get_setting, save_vacancy
-from ai_client import analyze_vacancy
+from db import get_channels, get_accounts, get_setting, save_vacancy, add_channel
+from ai_client import analyze_vacancy, classify_channel
 
 
 class AccountMonitor:
@@ -89,6 +89,29 @@ class AccountMonitor:
             self.client.remove_event_handler(h)
         if self.client:
             await self.client.disconnect()
+
+    async def scan_dialogs(self, min_score: float = 0.3) -> list:
+        if not self.client:
+            return []
+        dialogs = await self.client.get_dialogs(limit=200)
+        results = []
+        for dlg in dialogs:
+            if not dlg.is_channel:
+                continue
+            title = dlg.title or ""
+            about = getattr(dlg.entity, "about", "") if hasattr(dlg.entity, "about") else ""
+            is_job, score, category = await classify_channel(title, about)
+            if is_job and score >= min_score:
+                results.append({
+                    "id": dlg.id,
+                    "title": title,
+                    "username": dlg.entity.username if hasattr(dlg.entity, "username") else "",
+                    "score": score,
+                    "category": category,
+                })
+                print(f"[Scan] {title} — {category} ({score:.2f})")
+        results.sort(key=lambda r: r["score"], reverse=True)
+        return results
 
     async def send_message(self, chat_id, text):
         if self.client:

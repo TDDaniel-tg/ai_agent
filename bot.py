@@ -73,6 +73,7 @@ async def start(update: Update, context):
         "<b>Commands:</b>\n"
         "/accounts — Manage your Telegram accounts\n"
         "/add_account — Add a new account\n"
+        "/scan ACCOUNT_ID — Auto-scan account for job channels\n"
         "/channels — View/manage channel subscriptions\n"
         "/pipeline — View your lead pipeline\n"
         "/settings — View/change settings\n"
@@ -80,6 +81,109 @@ async def start(update: Update, context):
         "/cancel — Cancel current operation",
         parse_mode=ParseMode.HTML,
     )
+
+
+async def scan_cmd(update: Update, context):
+    args = context.args
+    if not args:
+        accounts = get_accounts()
+        if not accounts:
+            await update.message.reply_text("No accounts. Add one with /add_account first.")
+            return
+        lines = ["<b>Usage:</b> /scan ACCOUNT_ID\n\n<b>Your accounts:</b>"]
+        for a in accounts:
+            lines.append(f"ID {a['id']}: {escape(a['phone'])}")
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+        return
+
+    try:
+        account_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("Invalid account ID.")
+        return
+
+    if not ctx.monitor_manager:
+        await update.message.reply_text("Monitor not initialized.")
+        return
+
+    monitor = ctx.monitor_manager.get_monitor(account_id)
+    if not monitor:
+        await update.message.reply_text(f"Account {account_id} is not active.")
+        return
+
+    await update.message.reply_text("🔍 Scanning dialogs for job channels... This may take a minute.")
+    results = await monitor.scan_dialogs()
+
+    if not results:
+        await update.message.reply_text("No job-related channels found. Try increasing scan range or add channels manually.")
+        return
+
+    kb = []
+    msg = f"<b>Found {len(results)} job/freelance channels:</b>\n\n"
+    for r in results[:15]:
+        link = f"@{r['username']}" if r["username"] else f"ID {r['id']}"
+        msg += f"• {escape(r['title'])} ({link}) — {r['category']} ({r['score']:.0%})\n"
+        kb.append([InlineKeyboardButton(
+            f"📌 {r['title'][:30]}",
+            callback_data=f"scan_sub_{account_id}_{r['id']}_{r['title']}"
+        )])
+
+    kb.append([InlineKeyboardButton("✅ Subscribe All", callback_data=f"scan_all_{account_id}")])
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+
+
+async def scan_subscribe_callback(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    parts = data.split("_")
+    # scan_sub_{account_id}_{channel_id}_{title}
+    account_id = int(parts[2])
+    channel_title = "_".join(parts[4:])
+    channel_id = int(parts[3])
+    link = channel_id
+    # Try to get username from monitor
+    monitor = ctx.monitor_manager.get_monitor(account_id) if ctx.monitor_manager else None
+    if monitor and monitor.client:
+        try:
+            entity = await monitor.client.get_entity(channel_id)
+            if hasattr(entity, "username") and entity.username:
+                link = f"@{entity.username}"
+        except Exception:
+            pass
+
+    add_channel(account_id, str(link), channel_title)
+    await query.edit_message_reply_text(f"✅ Subscribed to {channel_title}")
+    if ctx.monitor_manager:
+        await ctx.monitor_manager.restart_all()
+
+
+async def scan_subscribe_all_callback(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split("_")
+    account_id = int(parts[2])
+
+    if not ctx.monitor_manager:
+        return
+
+    monitor = ctx.monitor_manager.get_monitor(account_id)
+    if not monitor:
+        return
+
+    await query.edit_message_reply_text("⏳ Subscribing to all channels...")
+    results = await monitor.scan_dialogs()
+    count = 0
+    for r in results:
+        try:
+            link = f"@{r['username']}" if r["username"] else str(r["id"])
+            add_channel(account_id, link, r["title"])
+            count += 1
+        except Exception:
+            pass
+    await query.edit_message_reply_text(f"✅ Subscribed to {count} channels!")
+    if ctx.monitor_manager:
+        await ctx.monitor_manager.restart_all()
 
 
 async def accounts_cmd(update: Update, context):
@@ -458,6 +562,11 @@ def create_bot() -> Application:
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     application.add_handler(add_acc_conv)
+
+    # Scan
+    application.add_handler(CommandHandler("scan", scan_cmd))
+    application.add_handler(CallbackQueryHandler(scan_subscribe_callback, pattern=r"^scan_sub_\d+_\d+_"))
+    application.add_handler(CallbackQueryHandler(scan_subscribe_all_callback, pattern=r"^scan_all_\d+$"))
 
     # Callbacks
     application.add_handler(CallbackQueryHandler(vacancy_callback, pattern=r"^(respond|skip|status)_"))
