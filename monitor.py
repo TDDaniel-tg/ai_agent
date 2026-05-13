@@ -3,6 +3,7 @@ import re
 from typing import Callable, Optional
 
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from telethon.tl.types import Message
 
 from config import config
@@ -21,11 +22,11 @@ class AccountMonitor:
     async def start(self):
         self._running = True
         acc = self.account
-        self.client = TelegramClient(
-            session=f"{config.session_dir}/{acc['phone']}",
-            api_id=acc["api_id"],
-            api_hash=acc["api_hash"],
-        )
+        session_str = acc.get("session_string") or ""
+        if session_str:
+            self.client = TelegramClient(StringSession(session_str), api_id=acc["api_id"], api_hash=acc["api_hash"])
+        else:
+            self.client = TelegramClient(f"{config.session_dir}/{acc['phone']}", api_id=acc["api_id"], api_hash=acc["api_hash"])
         await self.client.start()
         me = await self.client.get_me()
         print(f"[Monitor] Account {me.phone or acc['phone']} connected")

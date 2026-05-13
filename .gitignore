@@ -4,3 +4,5 @@ __pycache__/
 sessions/
 *.db
 .DS_Store
+gen_session.py
+temp_session.session

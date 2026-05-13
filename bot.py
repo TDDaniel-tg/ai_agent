@@ -231,11 +231,10 @@ async def add_account_api_hash(update: Update, context):
     context.user_data["acc_api_hash"] = update.message.text.strip()
     await update.message.reply_text(
         "Lastly, send me the <b>session string</b>.\n\n"
-        "Generate it with Telethon:\n"
-        "<code>from telethon import TelegramClient\n"
-        "client = TelegramClient('session', API_ID, API_HASH)\n"
-        "await client.start()\n"
-        "print(client.session.save())</code>",
+        "Run this helper:\n"
+        "<code>python3 gen_session.py</code>\n"
+        "Or use the batch script:\n"
+        "<code>python3 add_accounts.py</code>",
         parse_mode=ParseMode.HTML,
     )
     return SESSION_STRING
