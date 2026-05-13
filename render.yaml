@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: freelance-agent-bot
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ADMIN_USER_ID
+        sync: false
+      - key: PING_URL
+        fromService:
+          name: freelance-agent-bot
+          type: web
+          property: url
+      - key: SESSION_DIR
+        value: /var/data/sessions
+      - key: DB_PATH
+        value: /var/data/freelance_bot.db
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
