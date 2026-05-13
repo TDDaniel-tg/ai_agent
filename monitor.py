@@ -93,24 +93,56 @@ class AccountMonitor:
 
     async def scan_dialogs(self, min_score: float = 0.3) -> list:
         if not self.client:
+            print("[Scan] No client")
             return []
         dialogs = await self.client.get_dialogs(limit=200)
+        print(f"[Scan] Got {len(dialogs)} dialogs total")
         results = []
+        candidates = []
         for dlg in dialogs:
-            if not dlg.is_channel:
+            title = (dlg.title or "").lower()
+            # Keyword pre-filter — cheap & fast
+            keywords = ["ваканси", "job", "freelance", "work", "работа", "hire",
+                        "удаленк", "remote", "proj", "проект", "заказ", "gig",
+                        "it", "developer", "программист", "разработк"]
+            if not any(k in title for k in keywords):
                 continue
+            print(f"[Scan] Keyword match: {dlg.title}")
+            candidates.append(dlg)
+
+        if not candidates:
+            print("[Scan] No keyword matches among dialogs, listing first 10 dialogs:")
+            for dlg in dialogs[:10]:
+                print(f"  - {dlg.title} (id={dlg.id}, is_channel={dlg.is_channel}, is_group={dlg.is_group})")
+            return []
+
+        for dlg in candidates:
             title = dlg.title or ""
-            about = getattr(dlg.entity, "about", "") if hasattr(dlg.entity, "about") else ""
-            is_job, score, category = await classify_channel(title, about)
+            about = ""
+            try:
+                entity = dlg.entity
+                about = getattr(entity, "about", "") or ""
+            except Exception:
+                pass
+            try:
+                is_job, score, category = await classify_channel(title, about)
+            except Exception as e:
+                print(f"[Scan] AI error for {title}: {e}")
+                continue
             if is_job and score >= min_score:
+                username = ""
+                try:
+                    username = dlg.entity.username or ""
+                except Exception:
+                    pass
                 results.append({
                     "id": dlg.id,
                     "title": title,
-                    "username": dlg.entity.username if hasattr(dlg.entity, "username") else "",
+                    "username": username,
                     "score": score,
                     "category": category,
                 })
-                print(f"[Scan] {title} — {category} ({score:.2f})")
+                print(f"[Scan] ✅ {title} — {category} ({score:.2f})")
         results.sort(key=lambda r: r["score"], reverse=True)
         return results
 
